@@ -10,9 +10,9 @@ Part of the **FSS Parsers** collection - individual parser tools with the `fss-p
 
 ### Installation
 ```bash
-# Clone the parsers repository
-git clone https://github.com/FssCoding/parsers
-cd parsers/word
+# Clone the repository
+git clone https://github.com/FSSCoding/fss-parse-word.git
+cd fss-parse-word
 python3 install.py
 
 # Your tool is now available as 'fss-parse-word'
@@ -232,7 +232,7 @@ fss-parse-word input.md output.docx  # Will prompt and create backups
 
 This tool uses the `fss-parse-word` CLI command as part of the broader **FSS Parsers** ecosystem. Future parsers will follow the same `fss-parse-*` pattern for consistency.
 
-**Repository**: https://github.com/FssCoding/parsers  
+**Repository**: https://github.com/FSSCoding/fss-parse-word  
 **License**: MIT  
 **Author**: FssCoding
 

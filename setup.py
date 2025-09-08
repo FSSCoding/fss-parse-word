@@ -16,7 +16,7 @@ setup(
     long_description_content_type="text/markdown",
     author="FssCoding",
     author_email="",
-    url="https://github.com/FssCoding/parsers",
+    url="https://github.com/FSSCoding/fss-parse-word",
     packages=find_packages(),
     package_dir={"": "src"},
     install_requires=[
@@ -48,7 +48,7 @@ setup(
     python_requires=">=3.8",
     keywords="docx markdown word parser document conversion fss",
     project_urls={
-        "Bug Reports": "https://github.com/FssCoding/parsers/issues",
-        "Source": "https://github.com/FssCoding/parsers",
+        "Bug Reports": "https://github.com/FSSCoding/fss-parse-word/issues",
+        "Source": "https://github.com/FSSCoding/fss-parse-word",
     },
 )
