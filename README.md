@@ -236,6 +236,19 @@ This tool uses the `fss-parse-word` CLI command as part of the broader **FSS Par
 **License**: MIT  
 **Author**: FssCoding
 
+## 📋 Known Limitations
+
+### Image Handling
+- **Images are not currently processed** during conversion (python-docx limitation)
+- **Text content extracts perfectly** - images are silently skipped
+- **No crashes or errors** with image-heavy documents
+- **Recommendation**: Excellent for text-focused documents
+
+### Advanced Elements  
+- **Charts and SmartArt**: Not supported
+- **Headers/Footers**: Not currently processed
+- **Complex tables**: Basic conversion only (merged cells not supported)
+
 ---
 
 **🛡️ Remember**: This tool prioritizes safety over speed. Every conversion is validated, backed up, and confirmed to ensure your documents are never lost or corrupted.

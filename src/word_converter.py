@@ -354,7 +354,28 @@ class WordToMarkdownConverter:
             
             text = run.text
             
-            # Handle formatting
+            # Handle formatting - order matters for nested formatting
+            formatting_applied = False
+            
+            # Handle superscript/subscript first
+            if hasattr(run.font, 'superscript') and run.font.superscript:
+                text = f"<sup>{text}</sup>"
+                formatting_applied = True
+            elif hasattr(run.font, 'subscript') and run.font.subscript:
+                text = f"<sub>{text}</sub>"
+                formatting_applied = True
+            
+            # Handle strikethrough
+            if hasattr(run.font, 'strike') and run.font.strike:
+                text = f"~~{text}~~"
+                formatting_applied = True
+            
+            # Handle underline
+            if run.underline:
+                text = f"<u>{text}</u>"
+                formatting_applied = True
+            
+            # Handle bold/italic combinations
             if run.bold and run.italic:
                 text = f"***{text}***"
             elif run.bold:
