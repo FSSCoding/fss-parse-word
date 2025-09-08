@@ -1,0 +1,62 @@
+# Word Converter - Default Configuration
+# Professional settings for high-quality document conversion
+
+# Document settings
+font_name: "Calibri"
+font_size: 11
+line_spacing: 1.15
+
+# Heading settings with Word-compatible theme colors
+heading_font: "Calibri"
+heading_colors:
+  1: "#2E75B6"  # Word's default blue
+  2: "#C55A11"  # Word's default orange  
+  3: "#70AD47"  # Word's default green
+  4: "#7030A0"  # Word's default purple
+  5: "#264478"  # Word's default dark blue
+  6: "#E7E6E6"  # Word's default gray
+
+heading_sizes:
+  1: 16
+  2: 14
+  3: 12
+  4: 11
+  5: 11
+  6: 10
+
+heading_spacing_before:
+  1: 12
+  2: 10
+  3: 8
+  4: 6
+  5: 6
+  6: 4
+
+heading_spacing_after:
+  1: 6
+  2: 6
+  3: 4
+  4: 4
+  5: 2
+  6: 2
+
+# Paragraph settings
+paragraph_spacing_after: 6
+paragraph_first_line_indent: 0.0
+
+# List settings  
+list_spacing: 0
+list_indent: 0.25
+
+# Table settings
+table_style: "Table Grid"
+table_autofit: true
+
+# Code block settings
+code_font: "Consolas"
+code_size: 9
+code_background: "#F5F5F5"
+
+# Use Word's built-in styles for theme compatibility
+use_builtin_styles: true
+custom_style_map: {}
