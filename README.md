@@ -250,5 +250,3 @@ This tool uses the `fss-parse-word` CLI command as part of the broader **FSS Par
 - **Complex tables**: Basic conversion only (merged cells not supported)
 
 ---
-
-**🛡️ Remember**: This tool prioritizes safety over speed. Every conversion is validated, backed up, and confirmed to ensure your documents are never lost or corrupted.
