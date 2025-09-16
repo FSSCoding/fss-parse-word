@@ -2,7 +2,7 @@
 
 **Professional-grade bidirectional parser for Word (.docx) ↔ Markdown (.md) conversion**
 
-Part of the **FSS Parsers** collection - individual parser tools with the `fss-parse-*` CLI prefix for future expansion.
+Part of the **FSS Parsers** collection - individual parser tools with the `fss-parse-*` CLI prefix. **Completely standalone** - no dependencies on other FSS parsers.
 
 🛡️ **Built with production safety and enterprise quality standards**
 
