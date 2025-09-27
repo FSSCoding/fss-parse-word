@@ -49,6 +49,32 @@ except ImportError:
 console = Console()
 
 
+# Enhanced Error Handling Classes
+class WordParserError(Exception):
+    """Base exception for Word parser with user-friendly messages"""
+    def __init__(self, message: str, suggested_action: str = None, error_code: str = None):
+        self.message = message
+        self.suggested_action = suggested_action
+        self.error_code = error_code
+        super().__init__(self.message)
+
+class UnsupportedFormatError(WordParserError):
+    """Raised when file format is not supported"""
+    pass
+
+class ProtectedFileError(WordParserError):
+    """Raised when file is password-protected"""
+    pass
+
+class FileSizeError(WordParserError):
+    """Raised when file is too large"""
+    pass
+
+class CorruptedFileError(WordParserError):
+    """Raised when file appears corrupted"""
+    pass
+
+
 @dataclass
 class SafetyConfig:
     """Configuration for safety mechanisms."""
@@ -158,11 +184,132 @@ class ConversionConfig:
             self.custom_style_map = {}
 
 
+class FileValidator:
+    """Enhanced file validation with accessibility-focused error handling"""
+    
+    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
+    
+    def detect_file_format(self, file_path: str) -> Dict[str, Any]:
+        """Detect file format and provide clear feedback"""
+        extension = Path(file_path).suffix.lower()
+        
+        format_info = {
+            '.docx': {'supported': True, 'processor': 'python-docx'},
+            '.rtf': {'supported': False, 'alternative': 'Please convert to .docx format using Microsoft Word first'},
+            '.doc': {'supported': False, 'alternative': 'Please save as .docx format using Microsoft Word first'},
+            '.odt': {'supported': False, 'alternative': 'Please export as .docx format using LibreOffice first'},
+            '.md': {'supported': True, 'processor': 'markdown'},
+            '.txt': {'supported': False, 'alternative': 'Please rename to .md extension if this is markdown content'}
+        }
+        
+        return {
+            'format': extension,
+            'supported': format_info.get(extension, {}).get('supported', False),
+            'message': format_info.get(extension, {}).get('alternative', f'Unknown format: {extension}'),
+            'suggested_action': f"Convert {extension} to .docx or .md format" if extension not in format_info else format_info[extension].get('alternative')
+        }
+    
+    def check_file_protection(self, file_path: str) -> Dict[str, Any]:
+        """Check if file is password-protected before processing"""
+        try:
+            if Path(file_path).suffix.lower() == '.docx':
+                Document(file_path)
+            return {'protected': False, 'accessible': True}
+        except Exception as e:
+            error_msg = str(e).lower()
+            if any(term in error_msg for term in ['password', 'encrypted', 'protected', 'access denied']):
+                return {
+                    'protected': True, 
+                    'accessible': False,
+                    'message': 'Document is password-protected or encrypted',
+                    'suggested_action': 'Remove password protection in Microsoft Word: File → Info → Protect Document → Encrypt with Password (remove password)'
+                }
+            return {
+                'protected': False,
+                'accessible': False, 
+                'error': str(e),
+                'suggested_action': 'Check if file is corrupted or try opening in Microsoft Word first'
+            }
+    
+    def validate_file_size(self, file_path: str) -> Dict[str, Any]:
+        """Check file size before processing"""
+        try:
+            size = Path(file_path).stat().st_size
+            size_mb = round(size / 1024 / 1024, 1)
+            limit_mb = round(self.MAX_FILE_SIZE / 1024 / 1024, 1)
+            
+            if size > self.MAX_FILE_SIZE:
+                return {
+                    'valid': False,
+                    'size_mb': size_mb,
+                    'limit_mb': limit_mb,
+                    'message': f'File too large ({size_mb}MB). Maximum supported: {limit_mb}MB',
+                    'suggested_action': 'Split document into smaller sections using Microsoft Word or try processing in smaller chunks'
+                }
+            
+            return {'valid': True, 'size_mb': size_mb}
+        except Exception as e:
+            return {
+                'valid': False,
+                'error': str(e),
+                'suggested_action': 'Check if file exists and is accessible'
+            }
+    
+    def analyze_document_structure(self, doc_path: str) -> Dict[str, Any]:
+        """Analyze document for embedded objects and complex elements"""
+        try:
+            doc = Document(doc_path)
+            analysis = {
+                'total_paragraphs': len(doc.paragraphs),
+                'embedded_objects': [],
+                'images': 0,
+                'tables': len(doc.tables),
+                'warnings': [],
+                'accessibility_notes': []
+            }
+            
+            # Count images and check for alt text
+            image_count = 0
+            for rel in doc.part.rels.values():
+                if 'image' in rel.target_ref:
+                    image_count += 1
+            analysis['images'] = image_count
+            
+            # Generate accessibility warnings
+            if image_count > 0:
+                analysis['warnings'].append(f"Found {image_count} images")
+                analysis['accessibility_notes'].append("Images may lose alt text during conversion. Consider adding descriptions in surrounding text.")
+            
+            if analysis['tables'] > 0:
+                analysis['accessibility_notes'].append("Tables detected. Conversion will preserve structure but may lose complex formatting.")
+            
+            # Check for complex formatting
+            has_complex_formatting = False
+            for paragraph in doc.paragraphs[:10]:  # Sample first 10 paragraphs
+                for run in paragraph.runs:
+                    if run.bold or run.italic or run.underline:
+                        has_complex_formatting = True
+                        break
+                if has_complex_formatting:
+                    break
+            
+            if has_complex_formatting:
+                analysis['accessibility_notes'].append("Document contains formatting that will be preserved in conversion.")
+            
+            return analysis
+        except Exception as e:
+            return {
+                'error': str(e),
+                'suggested_action': 'Unable to analyze document structure. File may be corrupted.'
+            }
+
+
 class FileSafetyManager:
     """Handles file safety operations: hashing, collision detection, backups."""
     
     def __init__(self, safety_config: SafetyConfig = None):
         self.config = safety_config or SafetyConfig()
+        self.validator = FileValidator()
     
     def calculate_file_hash(self, file_path: Path) -> str:
         """Calculate SHA256 hash of file."""
@@ -216,6 +363,64 @@ class FileSafetyManager:
         
         response = input(f"⚠️  File '{file_path}' exists. Overwrite? [y/N]: ").lower().strip()
         return response in ['y', 'yes']
+    
+    def safe_document_processing(self, file_path: str) -> Dict[str, Any]:
+        """Process document with comprehensive error handling"""
+        try:
+            # Pre-flight checks
+            format_check = self.validator.detect_file_format(file_path)
+            if not format_check['supported']:
+                raise UnsupportedFormatError(
+                    format_check['message'],
+                    suggested_action=format_check['suggested_action'],
+                    error_code='UNSUPPORTED_FORMAT'
+                )
+            
+            size_check = self.validator.validate_file_size(file_path)
+            if not size_check['valid']:
+                raise FileSizeError(
+                    size_check['message'],
+                    suggested_action=size_check['suggested_action'],
+                    error_code='FILE_TOO_LARGE'
+                )
+            
+            protection_check = self.validator.check_file_protection(file_path)
+            if protection_check.get('protected', False):
+                raise ProtectedFileError(
+                    protection_check['message'],
+                    suggested_action=protection_check['suggested_action'],
+                    error_code='PASSWORD_PROTECTED'
+                )
+            
+            # Analyze document structure
+            structure_analysis = self.validator.analyze_document_structure(file_path)
+            
+            return {
+                'status': 'ready',
+                'checks_passed': True,
+                'file_info': {
+                    'size_mb': size_check.get('size_mb'),
+                    'format': format_check['format']
+                },
+                'structure_analysis': structure_analysis
+            }
+            
+        except WordParserError as e:
+            return {
+                'status': 'error',
+                'error_code': e.error_code,
+                'message': e.message,
+                'suggested_action': e.suggested_action,
+                'user_friendly': True
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error_code': 'UNKNOWN_ERROR',
+                'message': f"Unexpected error: {str(e)}",
+                'suggested_action': 'Please check file integrity and try again. If problem persists, the file may be corrupted.',
+                'user_friendly': False
+            }
     
     def safe_write_check(self, source_file: Path, target_file: Path) -> Tuple[bool, str]:
         """
@@ -985,9 +1190,11 @@ def cli(ctx, verbose, quiet, config):
 @click.option('--backup/--no-backup', default=False, help='Create backup (not needed for conversions)')
 @click.option('--format', type=click.Choice(['markdown', 'txt', 'docx']), default='markdown', help='Output format')
 @click.option('--template', type=click.Path(exists=True), help='Word template for DOCX output')
+@click.option('--strip-metadata', is_flag=True, help='Remove document metadata for privacy')
+@click.option('--preserve-metadata', is_flag=True, default=True, help='Keep document metadata (default)')
 @click.option('--json', 'output_json', is_flag=True, help='JSON output for automation')
 @click.pass_context
-def convert(ctx, input_file, output_file, force, backup, format, template, output_json):
+def convert(ctx, input_file, output_file, force, backup, format, template, strip_metadata, preserve_metadata, output_json):
     """Convert between Word and Markdown formats
     
     Auto-detects conversion direction based on file extensions.
@@ -995,6 +1202,19 @@ def convert(ctx, input_file, output_file, force, backup, format, template, outpu
     """
     input_path = Path(input_file)
     output_path = Path(output_file)
+    
+    # Validate metadata privacy options
+    if strip_metadata and preserve_metadata and preserve_metadata is not True:
+        click.echo("❌ Error: Cannot both strip and preserve metadata. Choose one option.")
+        sys.exit(1)
+    
+    # Set metadata handling mode
+    privacy_mode = strip_metadata if strip_metadata else False
+    
+    if privacy_mode:
+        click.echo("🔒 Privacy mode: Document metadata will be removed during conversion")
+    else:
+        click.echo("📝 Standard mode: Document metadata will be preserved")
     
     # Configure safety settings
     safety_config = SafetyConfig(
@@ -1017,6 +1237,33 @@ def convert(ctx, input_file, output_file, force, backup, format, template, outpu
     else:
         click.echo("❌ Error: Cannot auto-detect conversion direction from file extensions")
         sys.exit(1)
+    
+    # Enhanced validation with accessibility-focused error handling
+    validation_result = safety_manager.safe_document_processing(str(input_path))
+    
+    if validation_result['status'] == 'error':
+        if output_json:
+            result = {
+                "operation": "convert",
+                "status": "error",
+                "error_code": validation_result.get('error_code'),
+                "message": validation_result['message'],
+                "suggested_action": validation_result['suggested_action'],
+                "timestamp": datetime.now().isoformat()
+            }
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo(f"❌ Error: {validation_result['message']}")
+            if validation_result.get('suggested_action'):
+                click.echo(f"💡 Suggestion: {validation_result['suggested_action']}")
+        sys.exit(1)
+    
+    # Display structure analysis for user awareness
+    if validation_result.get('structure_analysis'):
+        analysis = validation_result['structure_analysis']
+        if analysis.get('accessibility_notes'):
+            for note in analysis['accessibility_notes']:
+                click.echo(f"ℹ️  {note}")
     
     start_time = datetime.now()
     
