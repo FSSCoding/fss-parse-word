@@ -17,16 +17,18 @@ setup(
     author="FssCoding",
     author_email="",
     url="https://github.com/FSSCoding/fss-parse-word",
-    packages=find_packages(),
+    py_modules=["word_converter", "word_engine"],
     package_dir={"": "src"},
     install_requires=[
         "python-docx>=0.8.11",
         "markdown>=3.4.0",
         "PyYAML>=6.0",
+        "click>=8.0.0",
+        "rich>=10.0.0",
     ],
     entry_points={
         "console_scripts": [
-            "fss-parse-word=word_converter:main",
+            "fss-parse-word=word_engine:cli",
         ],
     },
     classifiers=[

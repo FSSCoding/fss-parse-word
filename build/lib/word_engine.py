@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-FSS Parse Word - Professional document processing toolkit
+Word - Global Document Conversion Tool
 Safe, hash-validated bidirectional conversion between .docx and .md formats.
 
-CLI Framework: Click-based with universal options
+Author: Isabella (Testing & Validation Specialist)
 Safety Features: Hash checking, collision detection, confirmation prompts
 """
 
-import click
+import argparse
 import hashlib
 import json
 import re
@@ -18,9 +18,6 @@ from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 import tempfile
 import shutil
-from datetime import datetime
-from rich.console import Console
-from rich.table import Table
 
 try:
     from docx import Document
@@ -45,8 +42,6 @@ try:
 except ImportError:
     print("⚠️  Warning: PyYAML not installed. YAML config support disabled. Install with: pip install PyYAML")
     yaml = None
-
-console = Console()
 
 
 @dataclass
@@ -953,863 +948,97 @@ def create_sample_config(config_path: str) -> None:
         print(f"❌ Error creating config: {e}")
 
 
-@click.group()
-@click.option('--verbose', '-v', is_flag=True, help='Enable verbose output')
-@click.option('--quiet', '-q', is_flag=True, help='Minimal output for automation')
-@click.option('--config', type=click.Path(exists=True), help='Configuration file path (JSON or YAML)')
-@click.pass_context
-def cli(ctx, verbose, quiet, config):
-    """FSS Parse Word - Professional document processing toolkit
-    
-    Safe, hash-validated bidirectional conversion between .docx and .md formats.
-    
-    Examples:
-      fss-parse-word convert document.docx output.md
-      fss-parse-word info document.docx --json
-      fss-parse-word extract document.docx --sections headers
-    """
-    ctx.ensure_object(dict)
-    ctx.obj['verbose'] = verbose
-    ctx.obj['quiet'] = quiet
-    ctx.obj['config'] = config
-    
-    # Store global settings for output control
-    # Note: Rich Console doesn't have quiet/verbose attributes by default
-    # We'll handle this in individual commands
+def main():
+    """Main function to handle command line arguments with safety features."""
+    parser = argparse.ArgumentParser(
+        description='Word - Safe document conversion tool with hash validation',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  word document.docx document.md          # Convert Word to Markdown
+  word document.md document.docx          # Convert Markdown to Word
+  word --force document.md document.docx  # Skip confirmation prompts
+  word --no-backup document.md output.docx # Skip backup creation
+  word --create-config config.yaml        # Create sample configuration
 
-
-@cli.command()
-@click.argument('input_file', type=click.Path(exists=True))
-@click.argument('output_file', type=click.Path())
-@click.option('--force', is_flag=True, help='Skip confirmation prompts')
-@click.option('--backup/--no-backup', default=False, help='Create backup (not needed for conversions)')
-@click.option('--format', type=click.Choice(['markdown', 'txt', 'docx']), default='markdown', help='Output format')
-@click.option('--template', type=click.Path(exists=True), help='Word template for DOCX output')
-@click.option('--json', 'output_json', is_flag=True, help='JSON output for automation')
-@click.pass_context
-def convert(ctx, input_file, output_file, force, backup, format, template, output_json):
-    """Convert between Word and Markdown formats
+Safety Features:
+  - Hash validation prevents data loss
+  - Automatic backup creation
+  - Collision detection
+  - Confirmation prompts for overwrites
+        """
+    )
     
-    Auto-detects conversion direction based on file extensions.
-    Conversions leave original files untouched by default.
-    """
-    input_path = Path(input_file)
-    output_path = Path(output_file)
+    parser.add_argument('input_file', nargs='?', help='Input file path')
+    parser.add_argument('output_file', nargs='?', help='Output file path')
+    parser.add_argument('--direction', choices=['docx2md', 'md2docx'], 
+                       help='Conversion direction (auto-detected if not specified)')
+    parser.add_argument('--config', help='Configuration file path (JSON or YAML)')
+    parser.add_argument('--template', help='Word template file for MD to DOCX conversion')
+    parser.add_argument('--create-config', help='Create sample configuration file')
+    
+    # Safety options
+    parser.add_argument('--force', action='store_true', help='Skip confirmation prompts')
+    parser.add_argument('--no-backup', action='store_true', help='Skip backup creation')
+    parser.add_argument('--no-hash-check', action='store_true', help='Skip hash validation')
+    
+    args = parser.parse_args()
+    
+    # Handle config creation
+    if args.create_config:
+        create_sample_config(args.create_config)
+        return
+    
+    if not args.input_file or not args.output_file:
+        parser.print_help()
+        sys.exit(1)
+    
+    input_path = Path(args.input_file)
+    output_path = Path(args.output_file)
+    
+    if not input_path.exists():
+        print(f"❌ Error: Input file {input_path} does not exist")
+        sys.exit(1)
     
     # Configure safety settings
     safety_config = SafetyConfig(
-        require_confirmation=not force,
-        create_backup=backup,  # Default False for conversions
-        check_hash=True,
+        require_confirmation=not args.force,
+        create_backup=not args.no_backup,
+        check_hash=not args.no_hash_check,
         prevent_overwrite=True
     )
     
     safety_manager = FileSafetyManager(safety_config)
     
     # Load configuration
-    config = load_config_file(ctx.obj['config']) if ctx.obj['config'] else ConversionConfig()
+    config = load_config_file(args.config) if args.config else ConversionConfig()
     
     # Auto-detect conversion direction
-    if input_path.suffix.lower() == '.docx':
-        direction = 'docx2md'
-    elif input_path.suffix.lower() == '.md':
-        direction = 'md2docx'
+    if args.direction:
+        direction = args.direction
     else:
-        click.echo("❌ Error: Cannot auto-detect conversion direction from file extensions")
-        sys.exit(1)
-    
-    start_time = datetime.now()
+        if input_path.suffix.lower() == '.docx':
+            direction = 'docx2md'
+        elif input_path.suffix.lower() == '.md':
+            direction = 'md2docx'
+        else:
+            print("❌ Error: Cannot auto-detect conversion direction. Please specify --direction")
+            sys.exit(1)
     
     try:
         if direction == 'docx2md':
             converter = WordToMarkdownConverter(safety_manager)
             success = converter.convert_docx_to_md(str(input_path), str(output_path))
         else:
-            converter = MarkdownToWordConverter(config, template, safety_manager)
+            converter = MarkdownToWordConverter(config, args.template, safety_manager)
             success = converter.convert_md_to_docx(str(input_path), str(output_path))
-        
-        processing_time = (datetime.now() - start_time).total_seconds()
-        
-        if output_json:
-            result = {
-                "operation": "convert",
-                "input": {
-                    "filename": str(input_path),
-                    "size_bytes": input_path.stat().st_size,
-                    "format": input_path.suffix[1:]
-                },
-                "output": {
-                    "filename": str(output_path),
-                    "size_bytes": output_path.stat().st_size if output_path.exists() else 0,
-                    "format": output_path.suffix[1:]
-                },
-                "status": "success" if success else "error",
-                "processing_time": f"{processing_time:.2f}s",
-                "timestamp": datetime.now().isoformat()
-            }
-            click.echo(json.dumps(result, indent=2))
-        elif success and not ctx.obj['quiet']:
-            click.echo(f"✅ Conversion completed: {input_path.name} → {output_path.name}")
         
         sys.exit(0 if success else 1)
             
     except Exception as e:
-        if output_json:
-            error_result = {
-                "operation": "convert",
-                "status": "error",
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
-            click.echo(json.dumps(error_result, indent=2))
-        else:
-            click.echo(f"❌ Conversion failed: {e}")
+        print(f"❌ Conversion failed: {e}")
         sys.exit(1)
-
-
-@cli.command()
-@click.argument('input_file', type=click.Path(exists=True))
-@click.option('--json', 'output_json', is_flag=True, help='JSON output for automation')
-@click.pass_context
-def info(ctx, input_file, output_json):
-    """Display document information and metadata
-    
-    Shows document properties, word count, structure analysis, and file metadata.
-    """
-    input_path = Path(input_file)
-    
-    try:
-        if input_path.suffix.lower() == '.docx':
-            doc_info = get_docx_info(input_path)
-        elif input_path.suffix.lower() == '.md':
-            doc_info = get_markdown_info(input_path)
-        else:
-            click.echo("❌ Error: Unsupported file format. Only .docx and .md files supported.")
-            sys.exit(1)
-        
-        if output_json:
-            click.echo(json.dumps(doc_info, indent=2, default=str))
-        else:
-            display_info_table(doc_info, quiet=ctx.obj['quiet'])
-            
-    except Exception as e:
-        if output_json:
-            error_result = {
-                "operation": "info",
-                "status": "error",
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
-            click.echo(json.dumps(error_result, indent=2))
-        else:
-            click.echo(f"❌ Error reading document: {e}")
-        sys.exit(1)
-
-
-@cli.command()
-@click.argument('input_dir', type=click.Path(exists=True, file_okay=False))
-@click.option('--output', type=click.Path(), required=True, help='Output directory')
-@click.option('--pattern', default='*.{docx,md}', help='File pattern to match')
-@click.option('--operation', type=click.Choice(['convert', 'info', 'extract']), default='convert', help='Operation to perform')
-@click.option('--format', type=click.Choice(['markdown', 'txt', 'json']), default='markdown', help='Output format')
-@click.option('--sections', type=click.Choice(['headers', 'tables', 'images', 'paragraphs', 'all']),
-              default='headers', help='Sections to extract (for extract operation)')
-@click.option('--threads', default=4, help='Number of processing threads')
-@click.option('--json', 'output_json', is_flag=True, help='JSON output for automation')
-@click.pass_context
-def batch(ctx, input_dir, output, pattern, operation, format, sections, threads, output_json):
-    """Process multiple documents in directory
-    
-    Processes all matching documents in a directory with the specified operation.
-    Supports convert, info, and extract operations on multiple files.
-    """
-    import glob
-    import concurrent.futures
-    from pathlib import Path
-    
-    input_path = Path(input_dir)
-    output_path = Path(output)
-    output_path.mkdir(parents=True, exist_ok=True)
-    
-    # Find matching files
-    if '{' in pattern and '}' in pattern:
-        # Handle pattern like "*.{docx,md}"
-        pattern_parts = pattern.replace('{', '').replace('}', '').split(',')
-        all_files = []
-        for part in pattern_parts:
-            part = part.strip()
-            if not part.startswith('*.'):
-                part = '*.' + part
-            all_files.extend(glob.glob(str(input_path / part)))
-    else:
-        # Handle simple pattern like "*.docx"
-        all_files = glob.glob(str(input_path / pattern))
-    
-    if not all_files:
-        click.echo(f"❌ No files found matching pattern {pattern} in {input_dir}")
-        sys.exit(1)
-    
-    click.echo(f"📁 Found {len(all_files)} files to process")
-    
-    def process_file(file_path):
-        file_path = Path(file_path)
-        
-        try:
-            if operation == 'convert':
-                if file_path.suffix.lower() == '.docx':
-                    output_file = output_path / f"{file_path.stem}.md"
-                    converter = WordToMarkdownConverter()
-                    success = converter.convert_docx_to_md(str(file_path), str(output_file))
-                elif file_path.suffix.lower() == '.md':
-                    output_file = output_path / f"{file_path.stem}.docx"
-                    converter = MarkdownToWordConverter()
-                    success = converter.convert_md_to_docx(str(file_path), str(output_file))
-                else:
-                    return {'file': str(file_path), 'status': 'error', 'error': 'Unsupported format'}
-                
-                return {'file': str(file_path), 'status': 'success' if success else 'error', 'output': str(output_file)}
-            
-            elif operation == 'info':
-                if file_path.suffix.lower() == '.docx':
-                    doc_info = get_docx_info(file_path)
-                elif file_path.suffix.lower() == '.md':
-                    doc_info = get_markdown_info(file_path)
-                else:
-                    return {'file': str(file_path), 'status': 'error', 'error': 'Unsupported format'}
-                
-                # Save info to JSON file
-                info_file = output_path / f"{file_path.stem}_info.json"
-                with open(info_file, 'w', encoding='utf-8') as f:
-                    json.dump(doc_info, f, indent=2, default=str)
-                
-                return {'file': str(file_path), 'status': 'success', 'output': str(info_file)}
-            
-            elif operation == 'extract':
-                if file_path.suffix.lower() == '.docx':
-                    extracted_data = extract_docx_sections(file_path, sections)
-                elif file_path.suffix.lower() == '.md':
-                    extracted_data = extract_markdown_sections(file_path, sections)
-                else:
-                    return {'file': str(file_path), 'status': 'error', 'error': 'Unsupported format'}
-                
-                # Save extracted data
-                if format == 'json':
-                    extract_file = output_path / f"{file_path.stem}_{sections}.json"
-                    with open(extract_file, 'w', encoding='utf-8') as f:
-                        json.dump(extracted_data, f, indent=2, default=str)
-                else:
-                    extract_file = output_path / f"{file_path.stem}_{sections}.md"
-                    formatted_output = format_extracted_markdown(extracted_data, sections, file_path)
-                    with open(extract_file, 'w', encoding='utf-8') as f:
-                        f.write(formatted_output)
-                
-                return {'file': str(file_path), 'status': 'success', 'output': str(extract_file)}
-                
-        except Exception as e:
-            return {'file': str(file_path), 'status': 'error', 'error': str(e)}
-    
-    # Process files with threading
-    results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-        future_to_file = {executor.submit(process_file, f): f for f in all_files}
-        for future in concurrent.futures.as_completed(future_to_file):
-            result = future.result()
-            results.append(result)
-            
-            if not output_json:
-                if result['status'] == 'success':
-                    click.echo(f"✅ {Path(result['file']).name} → {Path(result['output']).name}")
-                else:
-                    click.echo(f"❌ {Path(result['file']).name}: {result.get('error', 'Unknown error')}")
-    
-    # Summary
-    successful = len([r for r in results if r['status'] == 'success'])
-    failed = len([r for r in results if r['status'] == 'error'])
-    
-    if output_json:
-        summary = {
-            'operation': 'batch',
-            'total_files': len(all_files),
-            'successful': successful,
-            'failed': failed,
-            'results': results,
-            'timestamp': datetime.now().isoformat()
-        }
-        click.echo(json.dumps(summary, indent=2))
-    else:
-        click.echo(f"\n📊 Batch processing complete: {successful} successful, {failed} failed")
-
-
-@cli.command()
-@click.argument('input_file', type=click.Path(exists=True))
-@click.option('--sections', type=click.Choice(['headers', 'tables', 'images', 'paragraphs', 'all']),
-              default='headers', help='Content sections to extract')
-@click.option('--output', type=click.Path(), help='Output file path')
-@click.option('--format', type=click.Choice(['markdown', 'txt', 'json']), default='markdown', help='Output format')
-@click.option('--json', 'output_json', is_flag=True, help='JSON output for automation')
-@click.pass_context
-def extract(ctx, input_file, sections, output, format, output_json):
-    """Extract specific sections from document
-    
-    Extracts headers, tables, images, or paragraphs from Word documents.
-    Outputs to file or stdout in specified format.
-    """
-    input_path = Path(input_file)
-    
-    try:
-        if input_path.suffix.lower() == '.docx':
-            extracted_data = extract_docx_sections(input_path, sections)
-        elif input_path.suffix.lower() == '.md':
-            extracted_data = extract_markdown_sections(input_path, sections)
-        else:
-            click.echo("❌ Error: Unsupported file format. Only .docx and .md files supported.")
-            sys.exit(1)
-        
-        # Format output
-        if format == 'json' or output_json:
-            result = {
-                "operation": "extract",
-                "input": str(input_path),
-                "sections": sections,
-                "data": extracted_data,
-                "timestamp": datetime.now().isoformat()
-            }
-            formatted_output = json.dumps(result, indent=2, default=str)
-        elif format == 'markdown':
-            formatted_output = format_extracted_markdown(extracted_data, sections, input_path)
-        else:  # txt format
-            formatted_output = format_extracted_text(extracted_data, sections)
-        
-        # Output to file or stdout
-        if output:
-            with open(output, 'w', encoding='utf-8') as f:
-                f.write(formatted_output)
-            if not ctx.obj['quiet']:
-                click.echo(f"✅ Extracted {sections} from {input_path} → {output}")
-        else:
-            click.echo(formatted_output)
-            
-    except Exception as e:
-        if output_json:
-            error_result = {
-                "operation": "extract",
-                "status": "error",
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
-            click.echo(json.dumps(error_result, indent=2))
-        else:
-            click.echo(f"❌ Error extracting sections: {e}")
-        sys.exit(1)
-
-
-def get_docx_info(file_path: Path) -> Dict[str, Any]:
-    """Extract comprehensive information from Word document"""
-    doc = Document(file_path)
-    
-    # Basic file information
-    file_stats = file_path.stat()
-    
-    # Document properties
-    props = doc.core_properties
-    
-    # Count elements
-    paragraphs = len(doc.paragraphs)
-    tables = len(doc.tables)
-    
-    # Count words (approximate)
-    total_text = ' '.join([p.text for p in doc.paragraphs])
-    word_count = len(total_text.split())
-    
-    # Count headings
-    headings = []
-    for p in doc.paragraphs:
-        if p.style.name.startswith('Heading'):
-            level = int(re.findall(r'\d+', p.style.name)[0]) if re.findall(r'\d+', p.style.name) else 1
-            headings.append({
-                'level': level,
-                'text': p.text[:50] + '...' if len(p.text) > 50 else p.text
-            })
-    
-    return {
-        'filename': file_path.name,
-        'file_size_bytes': file_stats.st_size,
-        'file_size_human': f"{file_stats.st_size / 1024:.1f} KB" if file_stats.st_size < 1024*1024 else f"{file_stats.st_size / (1024*1024):.1f} MB",
-        'created': datetime.fromtimestamp(file_stats.st_ctime),
-        'modified': datetime.fromtimestamp(file_stats.st_mtime),
-        'format': 'Word Document (.docx)',
-        'title': props.title or 'Untitled',
-        'author': props.author or 'Unknown',
-        'subject': props.subject or '',
-        'paragraphs': paragraphs,
-        'tables': tables,
-        'headings_count': len(headings),
-        'word_count': word_count,
-        'headings': headings[:10]  # First 10 headings
-    }
-
-
-def get_markdown_info(file_path: Path) -> Dict[str, Any]:
-    """Extract comprehensive information from Markdown document"""
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    file_stats = file_path.stat()
-    
-    # Count elements
-    lines = content.split('\n')
-    paragraphs = len([line for line in lines if line.strip() and not line.startswith('#')])
-    
-    # Count headings
-    headings = []
-    for line in lines:
-        if line.strip().startswith('#'):
-            level = len(line) - len(line.lstrip('#'))
-            text = line.lstrip('#').strip()
-            headings.append({
-                'level': level,
-                'text': text[:50] + '...' if len(text) > 50 else text
-            })
-    
-    # Count tables
-    table_count = len([line for line in lines if '|' in line and line.strip().startswith('|')])
-    
-    # Word count
-    word_count = len(content.split())
-    
-    return {
-        'filename': file_path.name,
-        'file_size_bytes': file_stats.st_size,
-        'file_size_human': f"{file_stats.st_size / 1024:.1f} KB" if file_stats.st_size < 1024*1024 else f"{file_stats.st_size / (1024*1024):.1f} MB",
-        'created': datetime.fromtimestamp(file_stats.st_ctime),
-        'modified': datetime.fromtimestamp(file_stats.st_mtime),
-        'format': 'Markdown (.md)',
-        'lines': len(lines),
-        'paragraphs': paragraphs,
-        'tables': table_count,
-        'headings_count': len(headings),
-        'word_count': word_count,
-        'headings': headings[:10]  # First 10 headings
-    }
-
-
-def display_info_table(doc_info: Dict[str, Any], quiet: bool = False) -> None:
-    """Display document information in formatted table"""
-    if quiet:
-        # Minimal output for quiet mode
-        print(f"{doc_info['filename']}: {doc_info['word_count']} words, {doc_info['paragraphs']} paragraphs, {doc_info['headings_count']} headings")
-        return
-        
-    table = Table(title=f"Document Information: {doc_info['filename']}")
-    table.add_column("Property", style="cyan", width=15)
-    table.add_column("Value", style="white")
-    
-    # File properties
-    table.add_row("File Size", doc_info['file_size_human'])
-    table.add_row("Format", doc_info['format'])
-    table.add_row("Created", str(doc_info['created']))
-    table.add_row("Modified", str(doc_info['modified']))
-    
-    # Document properties
-    if 'title' in doc_info:
-        table.add_row("Title", doc_info['title'])
-    if 'author' in doc_info:
-        table.add_row("Author", doc_info['author'])
-    
-    # Content statistics
-    table.add_row("Word Count", str(doc_info['word_count']))
-    table.add_row("Paragraphs", str(doc_info['paragraphs']))
-    table.add_row("Tables", str(doc_info['tables']))
-    table.add_row("Headings", str(doc_info['headings_count']))
-    
-    console.print(table)
-    
-    # Show headings if any
-    if doc_info['headings']:
-        console.print("\n📋 Document Structure (first 10 headings):")
-        for heading in doc_info['headings']:
-            indent = "  " * (heading['level'] - 1)
-            console.print(f"{indent}{'#' * heading['level']} {heading['text']}")
-
-
-def extract_docx_sections(file_path: Path, sections: str) -> Dict[str, Any]:
-    """Extract specific sections from Word document"""
-    doc = Document(file_path)
-    extracted = {}
-    
-    if sections in ['headers', 'all']:
-        headers = []
-        for p in doc.paragraphs:
-            if p.style.name.startswith('Heading') or p.style.name == 'Title':
-                level = 1 if p.style.name == 'Title' else int(re.findall(r'\d+', p.style.name)[0])
-                headers.append({
-                    'level': level,
-                    'text': p.text,
-                    'style': p.style.name
-                })
-        extracted['headers'] = headers
-    
-    if sections in ['tables', 'all']:
-        tables = []
-        for table in doc.tables:
-            table_data = []
-            for row in table.rows:
-                row_data = [cell.text.strip() for cell in row.cells]
-                table_data.append(row_data)
-            tables.append({
-                'rows': len(table_data),
-                'cols': len(table_data[0]) if table_data else 0,
-                'data': table_data
-            })
-        extracted['tables'] = tables
-    
-    if sections in ['paragraphs', 'all']:
-        paragraphs = []
-        for p in doc.paragraphs:
-            if p.text.strip() and not p.style.name.startswith('Heading'):
-                paragraphs.append({
-                    'text': p.text,
-                    'style': p.style.name
-                })
-        extracted['paragraphs'] = paragraphs
-    
-    if sections in ['images', 'all']:
-        # Image extraction is complex in python-docx, placeholder for now
-        extracted['images'] = []
-    
-    return extracted
-
-
-def extract_markdown_sections(file_path: Path, sections: str) -> Dict[str, Any]:
-    """Extract specific sections from Markdown document"""
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    lines = content.split('\n')
-    extracted = {}
-    
-    if sections in ['headers', 'all']:
-        headers = []
-        for line in lines:
-            if line.strip().startswith('#'):
-                level = len(line) - len(line.lstrip('#'))
-                text = line.lstrip('#').strip()
-                headers.append({
-                    'level': level,
-                    'text': text
-                })
-        extracted['headers'] = headers
-    
-    if sections in ['tables', 'all']:
-        tables = []
-        current_table = []
-        in_table = False
-        
-        for line in lines:
-            if '|' in line and line.strip().startswith('|'):
-                if '---' not in line:  # Skip separator line
-                    current_table.append([cell.strip() for cell in line.split('|')[1:-1]])
-                in_table = True
-            else:
-                if in_table and current_table:
-                    tables.append({
-                        'rows': len(current_table),
-                        'cols': len(current_table[0]) if current_table else 0,
-                        'data': current_table
-                    })
-                    current_table = []
-                in_table = False
-        
-        if current_table:  # Handle table at end of file
-            tables.append({
-                'rows': len(current_table),
-                'cols': len(current_table[0]) if current_table else 0,
-                'data': current_table
-            })
-        
-        extracted['tables'] = tables
-    
-    if sections in ['paragraphs', 'all']:
-        paragraphs = []
-        for line in lines:
-            if line.strip() and not line.startswith('#') and not line.startswith('|'):
-                paragraphs.append({'text': line.strip()})
-        extracted['paragraphs'] = paragraphs
-    
-    if sections in ['images', 'all']:
-        images = []
-        for line in lines:
-            if '![' in line:
-                images.append({'markdown': line.strip()})
-        extracted['images'] = images
-    
-    return extracted
-
-
-def format_extracted_markdown(data: Dict[str, Any], sections: str, input_path: Path) -> str:
-    """Format extracted data as Markdown"""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    md_content = f"# Word Document Analysis: {input_path.name}\n"
-    md_content += f"*Generated on: {timestamp}*\n\n"
-    
-    md_content += f"## Metadata\n"
-    md_content += f"- **File:** {input_path.name}\n"
-    md_content += f"- **Sections Extracted:** {sections}\n"
-    md_content += f"- **Processing Date:** {timestamp}\n\n"
-    
-    if 'headers' in data:
-        md_content += f"## Headers ({len(data['headers'])})\n\n"
-        for header in data['headers']:
-            md_content += f"{'#' * header['level']} {header['text']}\n"
-        md_content += "\n"
-    
-    if 'tables' in data:
-        md_content += f"## Tables ({len(data['tables'])})\n\n"
-        for i, table in enumerate(data['tables'], 1):
-            md_content += f"### Table {i} ({table['rows']} rows × {table['cols']} columns)\n\n"
-            if table['data']:
-                # Format as markdown table
-                md_content += "| " + " | ".join(table['data'][0]) + " |\n"
-                md_content += "| " + " | ".join(["---"] * len(table['data'][0])) + " |\n"
-                for row in table['data'][1:]:
-                    md_content += "| " + " | ".join(row) + " |\n"
-            md_content += "\n"
-    
-    if 'paragraphs' in data:
-        md_content += f"## Text Content ({len(data['paragraphs'])} paragraphs)\n\n"
-        for para in data['paragraphs'][:10]:  # Limit to first 10
-            md_content += f"{para['text']}\n\n"
-        if len(data['paragraphs']) > 10:
-            md_content += f"... and {len(data['paragraphs']) - 10} more paragraphs\n\n"
-    
-    md_content += "---\n*Generated by FSS Parse Word v1.0.0*"
-    return md_content
-
-
-def format_extracted_text(data: Dict[str, Any], sections: str) -> str:
-    """Format extracted data as plain text"""
-    text_content = ""
-    
-    if 'headers' in data:
-        text_content += f"HEADERS ({len(data['headers'])}):\n"
-        for header in data['headers']:
-            indent = "  " * (header['level'] - 1)
-            text_content += f"{indent}{header['text']}\n"
-        text_content += "\n"
-    
-    if 'tables' in data:
-        text_content += f"TABLES ({len(data['tables'])}):\n"
-        for i, table in enumerate(data['tables'], 1):
-            text_content += f"Table {i}: {table['rows']} rows × {table['cols']} columns\n"
-        text_content += "\n"
-    
-    if 'paragraphs' in data:
-        text_content += f"PARAGRAPHS ({len(data['paragraphs'])}):\n"
-        for i, para in enumerate(data['paragraphs'][:5], 1):  # First 5 only for text format
-            text_content += f"{i}. {para['text'][:100]}...\n"
-        text_content += "\n"
-    
-    return text_content
-
-
-@cli.command()
-@click.argument('input_file', type=click.Path(exists=True))
-@click.option('--check-styles', is_flag=True, help='Check document style consistency')
-@click.option('--fix-formatting', is_flag=True, help='Automatically fix common formatting issues')
-@click.option('--json', 'output_json', is_flag=True, help='JSON output for automation')
-@click.pass_context
-def validate(ctx, input_file, check_styles, fix_formatting, output_json):
-    """Validate Word document safety and integrity
-    
-    Checks document for formatting issues, style inconsistencies, and structural problems.
-    Can automatically fix common issues when requested.
-    """
-    input_path = Path(input_file)
-    
-    try:
-        if input_path.suffix.lower() == '.docx':
-            validation_result = validate_docx_document(input_path, check_styles, fix_formatting)
-        else:
-            click.echo("❌ Error: Unsupported file format. Only .docx files supported for validation.")
-            sys.exit(1)
-        
-        if output_json:
-            click.echo(json.dumps(validation_result, indent=2, default=str))
-        else:
-            display_validation_results(validation_result, ctx.obj['quiet'])
-            
-    except Exception as e:
-        if output_json:
-            error_result = {
-                "operation": "validate",
-                "status": "error",
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
-            click.echo(json.dumps(error_result, indent=2))
-        else:
-            click.echo(f"❌ Error validating document: {e}")
-        sys.exit(1)
-
-
-def validate_docx_document(file_path: Path, check_styles: bool = True, fix_formatting: bool = False) -> Dict[str, Any]:
-    """Validate Word document and optionally fix issues"""
-    doc = Document(file_path)
-    issues = []
-    fixes_applied = []
-    
-    # Check basic document structure
-    if not doc.paragraphs:
-        issues.append({
-            'type': 'structure',
-            'severity': 'warning',
-            'message': 'Document has no paragraphs'
-        })
-    
-    # Check for empty paragraphs
-    empty_paragraphs = len([p for p in doc.paragraphs if not p.text.strip()])
-    if empty_paragraphs > 5:
-        issues.append({
-            'type': 'formatting',
-            'severity': 'warning', 
-            'message': f'Document has {empty_paragraphs} empty paragraphs (consider cleanup)'
-        })
-    
-    # Check heading structure if style checking enabled
-    if check_styles:
-        heading_issues = validate_heading_structure(doc)
-        issues.extend(heading_issues)
-    
-    # Check for very long paragraphs
-    long_paragraphs = [p for p in doc.paragraphs if len(p.text) > 1000]
-    if long_paragraphs:
-        issues.append({
-            'type': 'readability',
-            'severity': 'info',
-            'message': f'Found {len(long_paragraphs)} very long paragraphs (>1000 chars)'
-        })
-    
-    # Auto-fix issues if requested
-    if fix_formatting:
-        if empty_paragraphs > 5:
-            # Remove excessive empty paragraphs (keep some for spacing)
-            removed_count = remove_excessive_empty_paragraphs(doc)
-            if removed_count > 0:
-                fixes_applied.append(f'Removed {removed_count} excessive empty paragraphs')
-                
-                # Save fixed document
-                backup_path = file_path.with_suffix('.backup.docx')
-                doc.save(backup_path)
-                doc.save(file_path)
-                fixes_applied.append(f'Document saved with fixes applied (backup: {backup_path.name})')
-    
-    return {
-        'filename': file_path.name,
-        'validation_status': 'passed' if not any(i['severity'] == 'error' for i in issues) else 'failed',
-        'issues_found': len(issues),
-        'issues': issues,
-        'fixes_applied': fixes_applied,
-        'document_stats': {
-            'paragraphs': len(doc.paragraphs),
-            'tables': len(doc.tables),
-            'empty_paragraphs': empty_paragraphs,
-            'long_paragraphs': len(long_paragraphs)
-        },
-        'timestamp': datetime.now().isoformat()
-    }
-
-
-def validate_heading_structure(doc: Document) -> List[Dict[str, Any]]:
-    """Validate document heading structure"""
-    issues = []
-    heading_levels = []
-    
-    for p in doc.paragraphs:
-        if p.style.name.startswith('Heading'):
-            level = int(re.findall(r'\d+', p.style.name)[0]) if re.findall(r'\d+', p.style.name) else 1
-            heading_levels.append(level)
-    
-    # Check for missing heading hierarchy
-    for i, level in enumerate(heading_levels[1:], 1):
-        prev_level = heading_levels[i-1]
-        if level > prev_level + 1:
-            issues.append({
-                'type': 'style',
-                'severity': 'warning',
-                'message': f'Heading hierarchy skip detected: H{prev_level} followed by H{level}'
-            })
-    
-    # Check if document starts with non-H1 heading
-    if heading_levels and heading_levels[0] != 1:
-        issues.append({
-            'type': 'style',
-            'severity': 'info',
-            'message': f'Document starts with H{heading_levels[0]} instead of H1'
-        })
-    
-    return issues
-
-
-def remove_excessive_empty_paragraphs(doc: Document) -> int:
-    """Remove excessive empty paragraphs, keeping some for spacing"""
-    paragraphs_to_remove = []
-    consecutive_empty = 0
-    removed_count = 0
-    
-    for i, p in enumerate(doc.paragraphs):
-        if not p.text.strip():
-            consecutive_empty += 1
-            # Keep first empty paragraph in sequence, remove subsequent ones
-            if consecutive_empty > 2:  # Allow up to 2 consecutive empty paragraphs
-                paragraphs_to_remove.append(p)
-        else:
-            consecutive_empty = 0
-    
-    # Remove paragraphs (in reverse order to maintain indices)
-    for p in reversed(paragraphs_to_remove):
-        p_element = p.element
-        p_element.getparent().remove(p_element)
-        removed_count += 1
-    
-    return removed_count
-
-
-def display_validation_results(result: Dict[str, Any], quiet: bool = False) -> None:
-    """Display validation results in formatted table"""
-    if quiet:
-        status = result['validation_status']
-        issues = result['issues_found']
-        print(f"{result['filename']}: {status}, {issues} issues")
-        return
-    
-    # Main status
-    status_color = "green" if result['validation_status'] == 'passed' else "red"
-    console.print(f"\n✅ Validation Results: [bold {status_color}]{result['validation_status'].upper()}[/bold {status_color}]")
-    console.print(f"📄 File: {result['filename']}")
-    console.print(f"🔍 Issues Found: {result['issues_found']}")
-    
-    # Document stats
-    stats = result['document_stats']
-    console.print(f"\n📊 Document Statistics:")
-    console.print(f"  • Paragraphs: {stats['paragraphs']}")
-    console.print(f"  • Tables: {stats['tables']}")
-    console.print(f"  • Empty Paragraphs: {stats['empty_paragraphs']}")
-    console.print(f"  • Long Paragraphs: {stats['long_paragraphs']}")
-    
-    # Issues
-    if result['issues']:
-        console.print(f"\n⚠️  Issues Detected:")
-        for issue in result['issues']:
-            severity_color = {"error": "red", "warning": "yellow", "info": "blue"}.get(issue['severity'], "white")
-            console.print(f"  • [{severity_color}]{issue['severity'].upper()}[/{severity_color}]: {issue['message']} ({issue['type']})")
-    
-    # Fixes applied
-    if result['fixes_applied']:
-        console.print(f"\n🔧 Fixes Applied:")
-        for fix in result['fixes_applied']:
-            console.print(f"  • {fix}")
 
 
 if __name__ == '__main__':
-    cli()
+    main()

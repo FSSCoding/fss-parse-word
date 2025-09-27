@@ -1,0 +1,11 @@
+LICENSE
+README.md
+setup.py
+src/word_converter.py
+src/word_engine.py
+src/fss_parse_word.egg-info/PKG-INFO
+src/fss_parse_word.egg-info/SOURCES.txt
+src/fss_parse_word.egg-info/dependency_links.txt
+src/fss_parse_word.egg-info/entry_points.txt
+src/fss_parse_word.egg-info/requires.txt
+src/fss_parse_word.egg-info/top_level.txt

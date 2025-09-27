@@ -1,0 +1,2 @@
+[console_scripts]
+fss-parse-word = word_converter:main
